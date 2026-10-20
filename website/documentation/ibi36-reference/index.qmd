@@ -1,0 +1,105 @@
+<!--
+SPDX-FileCopyrightText: 2026 Mercator Ocean International <https://www.mercator-ocean.eu/>
+
+SPDX-License-Identifier: EUPL-1.2
+-->
+
+---
+title: "IBI36 Copernicus Marine reference"
+---
+
+The IBI36 reader opens the regional multiyear physical reference from
+[Copernicus Marine product IBI_MULTIYEAR_PHY_005_002](https://data.marine.copernicus.eu/product/IBI_MULTIYEAR_PHY_005_002),
+at its native 1/36 degree resolution. It uses the same Copernicus Marine Toolbox
+as the GLORYS and GLO12 readers and returns standard OceanBench variables.
+
+## Open a small subset
+
+Use an existing OceanBench environment and Copernicus Marine account. The Toolbox
+uses its configured credentials when `username` and `password` are omitted; it
+may prompt if needed. Keep passwords out of source code and notebooks.
+
+```python
+from oceanbench.datasets.reference import ibi36_reference
+
+with ibi36_reference(
+    "2023-12-11",
+    "2023-12-11",
+    minimum_longitude=-10,
+    maximum_longitude=-9.85,
+    minimum_latitude=43,
+    maximum_latitude=43.15,
+    maximum_depth=10,
+) as reference:
+    subset = reference.isel(
+        time=0, latitude=slice(0, 5), longitude=slice(0, 5)
+    )
+    print(subset)
+```
+
+Dates are inclusive. Spatial and positive-down depth limits restrict the remote
+subset. Source timestamps are at midnight UTC and are preserved. Selecting and
+printing this subset does not compute its ocean fields or save a dataset.
+Use the context manager, or call `reference.close()`, to close all opened sources.
+
+## Sources, variables and mask
+
+The reader pins dataset version `202511` and opens these daily datasets:
+
+| Dataset ID | Native variable | OceanBench variable | Units |
+|---|---|---|---|
+| `cmems_mod_ibi_phy-temp_my_0.027deg_P1D-m` | `thetao` | `sea_water_potential_temperature` | `degrees_C` |
+| `cmems_mod_ibi_phy-sal_my_0.027deg_P1D-m` | `so` | `sea_water_salinity` | `1e-3` |
+| `cmems_mod_ibi_phy-cur_my_0.027deg_P1D-m` | `uo` | `eastward_sea_water_velocity` | `m/s` |
+| `cmems_mod_ibi_phy-cur_my_0.027deg_P1D-m` | `vo` | `northward_sea_water_velocity` | `m/s` |
+| `cmems_mod_ibi_phy-ssh_my_0.027deg_P1D-m` | `zos` | `sea_surface_height_above_geoid` | `m` |
+
+Practical salinity values are retained without division by 1000. Daily mean
+currents are already oriented eastward and northward; no vector rotation or
+de-tiding is applied. Their signs and values in metres per second are retained.
+The output uses `time`, `depth`, `latitude` and
+`longitude`; the Toolbox supplies positive-down depth in metres, rather than
+the underlying negative elevation coordinate.
+
+A fifth source supplies the native static ocean mask:
+`cmems_mod_ibi_phy_my_0.027deg-3D_static`, part `bathy`, variable `mask`, at the
+same dataset version. Its horizontal subset matches the data subset.
+
+The mask is read from the surface through the deepest selected source level.
+Temperature, salinity and currents use the matching depth levels, masking land and cells
+below the bottom. Sea-surface height always uses the surface ocean mask, even
+when only deep temperature and salinity levels are requested. A missing or
+incompatible mask raises an error instead of returning unmasked fields.
+
+## Interpolate to an existing grid
+
+Use the actual coordinates of an already-open target dataset, for example a
+challenger on a 1/12 degree grid. A spacing alone does not identify that grid:
+its cell centres must also match. Open the reference over the target domain,
+including surrounding source cells needed by linear interpolation.
+
+The following assumes that `target_grid` is already open and lies inside the
+small reference domain shown above:
+
+```python
+from oceanbench.core.interpolate import interpolate_to_grid
+
+with ibi36_reference(
+    "2023-12-11",
+    "2023-12-11",
+    minimum_longitude=-10,
+    maximum_longitude=-9.85,
+    minimum_latitude=43,
+    maximum_latitude=43.15,
+    maximum_depth=10,
+) as reference:
+    reference_on_target = interpolate_to_grid(reference, target_grid)
+```
+
+This shared helper preserves the target latitude and longitude coordinates
+exactly. It does not extrapolate outside the source domain or invent a regular
+1/12 degree grid. Ocean fields remain lazy and retain missing masked values.
+Keep the reference open while computing any derived result.
+
+`interpolate_1_degree` keeps its existing 1 degree behaviour for every reference,
+including IBI36. Neither example performs a model evaluation or monthly extraction.

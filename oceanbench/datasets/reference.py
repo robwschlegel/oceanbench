@@ -13,6 +13,68 @@ import xarray
 from oceanbench.core.references import glorys
 from oceanbench.core.remote_http import open_remote_multizarr
 from oceanbench.core.references import glo12
+from oceanbench.core.references import ibi36
+
+
+def ibi36_reference(
+    start_date: str,
+    end_date: str,
+    username: str | None = None,
+    password: str | None = None,
+    minimum_longitude: float | None = None,
+    maximum_longitude: float | None = None,
+    minimum_latitude: float | None = None,
+    maximum_latitude: float | None = None,
+    minimum_depth: float | None = None,
+    maximum_depth: float | None = None,
+) -> xarray.Dataset:
+    """
+    Open Copernicus Marine IBI36 fields with their native ocean mask.
+
+    Parameters
+    ----------
+    start_date, end_date : str
+        Inclusive calendar dates. Source timestamps are at midnight UTC.
+    username, password : str, optional
+        Copernicus Marine credentials. If omitted, the Toolbox uses its
+        configured environment or credentials file and may prompt.
+    minimum_longitude, maximum_longitude : float, optional
+        Optional limits for the longitude subset.
+    minimum_latitude, maximum_latitude : float, optional
+        Optional limits for the latitude subset.
+    minimum_depth, maximum_depth : float, optional
+        Optional positive-down depth limits in metres.
+
+    Returns
+    -------
+    Dataset
+        Lazy potential temperature, practical salinity, eastward and northward
+        currents, and sea level, with land and below-bottom cells masked.
+        Close the dataset after use.
+
+    Uses version ``202511`` of ``IBI_MULTIYEAR_PHY_005_002``. No data files are
+    written, and credentials are not saved by this function.
+
+    >>> with ibi36_reference(  # doctest: +SKIP
+    ...     "2023-12-11", "2023-12-11",
+    ...     minimum_longitude=-10, maximum_longitude=-9.95,
+    ...     minimum_latitude=43, maximum_latitude=43.05,
+    ...     maximum_depth=10,
+    ... ) as reference:
+    ...     subset = reference.isel(time=0, depth=slice(0, 3))
+    """
+    return ibi36.ibi36_reference(
+        start_date,
+        end_date,
+        username,
+        password,
+        minimum_longitude,
+        maximum_longitude,
+        minimum_latitude,
+        maximum_latitude,
+        minimum_depth,
+        maximum_depth,
+    )
 
 
 def glorys_reanalysis() -> xarray.Dataset:
