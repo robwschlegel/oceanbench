@@ -8,7 +8,7 @@ import pytest
 import xarray
 
 from oceanbench.core.class4_neighbourhood_crps import (
-    _box_sizes_on_challenger_grid,
+    box_sizes_on_challenger_grid,
     _crps_by_observation,
     _crps_table,
     _formatted_results,
@@ -51,13 +51,13 @@ def _encoded_temperature() -> xarray.DataArray:
     [(1 / 12, [1, 3, 5, 7]), (1 / 36, [3, 9, 15, 21])],
 )
 def test_box_sizes_cover_the_same_area_on_every_supported_grid(spacing: float, expected_box_sizes: list[int]):
-    assert _box_sizes_on_challenger_grid(_challenger_grid(spacing)) == expected_box_sizes
+    assert box_sizes_on_challenger_grid(_challenger_grid(spacing)) == expected_box_sizes
 
 
 @pytest.mark.parametrize("spacing", [0.25, 1 / 24])
 def test_box_sizes_reject_grids_that_are_not_an_odd_fraction_of_twelfth_degree(spacing: float):
     with pytest.raises(ValueError, match="odd fraction"):
-        _box_sizes_on_challenger_grid(_challenger_grid(spacing))
+        box_sizes_on_challenger_grid(_challenger_grid(spacing))
 
 
 def test_each_observation_is_scored_against_its_own_forecast_lead_day_and_nearest_depth():

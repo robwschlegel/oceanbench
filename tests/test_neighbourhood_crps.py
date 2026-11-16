@@ -12,6 +12,7 @@ from oceanbench.core.neighbourhood_crps import (
     NEIGHBOURHOOD_MEMBER_DIMENSION,
     OBSERVATION_DIMENSION,
     ensemble_crps,
+    gridded_neighbourhood_crps,
     neighbourhood_crps,
     neighbourhood_values,
 )
@@ -204,3 +205,51 @@ def test_box_size_must_be_positive_and_odd(box_size: int):
 
     with pytest.raises(ValueError, match="positive odd"):
         neighbourhood_values(field, _along_observations([1.0]), _along_observations([1.0]), box_size=box_size)
+
+
+def _grid_cell_centres(field: xarray.DataArray) -> tuple[xarray.DataArray, xarray.DataArray]:
+    stacked = field.stack({OBSERVATION_DIMENSION: [Dimension.LATITUDE.key(), Dimension.LONGITUDE.key()]})
+    return (
+        xarray.DataArray(stacked[Dimension.LATITUDE.key()].values, dims=OBSERVATION_DIMENSION),
+        xarray.DataArray(stacked[Dimension.LONGITUDE.key()].values, dims=OBSERVATION_DIMENSION),
+    )
+
+
+@pytest.mark.parametrize(
+    "longitudes",
+    [numpy.arange(10.0, 22.0), numpy.arange(-180.0, 180.0, 30.0)],
+    ids=["regional", "global"],
+)
+def test_gridded_crps_equals_the_point_crps_at_every_grid_cell(longitudes: numpy.ndarray):
+    random_generator = numpy.random.default_rng(seed=3)
+    latitudes = numpy.arange(-5.0, 5.0)
+    values = random_generator.normal(size=(latitudes.size, longitudes.size))
+    values[2, 3] = numpy.nan
+    values[6, 0] = numpy.nan
+    field = _field(latitudes, longitudes, values)
+    reference = _field(latitudes, longitudes, random_generator.normal(size=values.shape))
+
+    gridded = gridded_neighbourhood_crps(field, reference, box_sizes=[1, 3, 5])
+
+    observation_latitudes, observation_longitudes = _grid_cell_centres(field)
+    reference_values = xarray.DataArray(
+        reference.stack({OBSERVATION_DIMENSION: [Dimension.LATITUDE.key(), Dimension.LONGITUDE.key()]}).values,
+        dims=OBSERVATION_DIMENSION,
+    )
+    point = neighbourhood_crps(field, observation_latitudes, observation_longitudes, reference_values, [1, 3, 5])
+    numpy.testing.assert_allclose(
+        gridded.transpose(BOX_SIZE_DIMENSION, Dimension.LATITUDE.key(), Dimension.LONGITUDE.key()).values.reshape(
+            3, -1
+        ),
+        point.transpose(BOX_SIZE_DIMENSION, OBSERVATION_DIMENSION).values,
+    )
+
+
+def test_gridded_crps_skips_cells_without_a_reference_value():
+    field = _field_with_land_cells([])
+    reference = _field_with_land_cells([(4, 4)])
+
+    gridded = gridded_neighbourhood_crps(field, reference, box_sizes=[1, 3])
+
+    assert gridded.isel({Dimension.LATITUDE.key(): 4, Dimension.LONGITUDE.key(): 4}).isnull().all()
+    assert gridded.isel({Dimension.LATITUDE.key(): 5, Dimension.LONGITUDE.key(): 5}).notnull().all()

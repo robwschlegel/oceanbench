@@ -5,6 +5,7 @@
 import pandas
 import xarray
 
+from oceanbench.core.class1_neighbourhood_crps import crps_class1_validation
 from oceanbench.core.classIV import rmsd_class4_validation
 from oceanbench.core.class4_neighbourhood_crps import crps_class4_validation
 from oceanbench.core.dataset_utils import Variable
@@ -17,6 +18,7 @@ from oceanbench.core.ocean_mask import ocean_mask
 from oceanbench.core.references.glo12 import glo12_analysis_dataset
 from oceanbench.core.references.glorys import glorys_reanalysis_dataset
 from oceanbench.core.references.observations import ObservationDataUnavailableError, observations
+from oceanbench.core.references.ostia import ostia_sea_surface_temperature_dataset
 from oceanbench.core.regions import GLOBAL_REGION_NAME, RegionLike, subset_dataset_to_region
 from oceanbench.core.rmsd import rmsd
 
@@ -206,5 +208,19 @@ def neighbourhood_crps_of_temperature_compared_to_observations(
         reference_dataset=observation_dataset,
         ocean_mask=ocean_mask(),
         variables=[Variable.SEA_WATER_POTENTIAL_TEMPERATURE],
+        minimum_ocean_fraction=minimum_ocean_fraction,
+    )
+
+
+def neighbourhood_crps_of_sea_surface_temperature_compared_to_ostia(
+    challenger_dataset: xarray.Dataset,
+    region: RegionLike = GLOBAL_REGION_NAME,
+    minimum_ocean_fraction: float = 0.5,
+) -> pandas.DataFrame:
+    challenger_dataset = subset_dataset_to_region(challenger_dataset, region)
+    return crps_class1_validation(
+        challenger_dataset=challenger_dataset,
+        reference_dataset=ostia_sea_surface_temperature_dataset(challenger_dataset),
+        reference_name="OSTIA",
         minimum_ocean_fraction=minimum_ocean_fraction,
     )

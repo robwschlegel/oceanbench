@@ -27,7 +27,7 @@ from oceanbench.core.resolution import TWELFTH_DEGREE_SPACING
 BOX_SIZES_IN_TWELFTH_DEGREE_CELLS = [1, 3, 5, 7]
 
 
-def _box_sizes_on_challenger_grid(challenger: xarray.Dataset) -> list[int]:
+def box_sizes_on_challenger_grid(challenger: xarray.Dataset) -> list[int]:
     latitude_spacing = float(numpy.diff(challenger[Dimension.LATITUDE.key()].values).mean())
     cells_per_twelfth_degree_cell = int(numpy.rint(TWELFTH_DEGREE_SPACING / latitude_spacing))
     is_odd_fraction_of_twelfth_degree = (
@@ -151,7 +151,7 @@ def crps_class4_validation(
 ) -> pandas.DataFrame:
     challenger = rename_dataset_with_standard_names(challenger_dataset)
     lead_days_count = challenger.sizes[Dimension.LEAD_DAY_INDEX.key()]
-    box_sizes = _box_sizes_on_challenger_grid(challenger)
+    box_sizes = box_sizes_on_challenger_grid(challenger)
     population_layers = class4_population_layers(ocean_mask)
 
     def variable_table(variable: Variable) -> pandas.DataFrame:

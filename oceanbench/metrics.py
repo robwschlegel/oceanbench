@@ -280,3 +280,39 @@ def neighbourhood_crps_of_temperature_compared_to_observations(
         region=region,
         minimum_ocean_fraction=minimum_ocean_fraction,
     )
+
+
+def neighbourhood_crps_of_sea_surface_temperature_compared_to_ostia(
+    challenger_dataset: xarray.Dataset,
+    region: RegionLike = "global",
+    minimum_ocean_fraction: float = 0.5,
+) -> DataFrame:
+    """
+    Compute the neighbourhood Continuous Ranked Probability Score (CRPS) of sea surface temperature compared to OSTIA.
+
+    At every ocean grid cell, the challenger's top-level temperature in a box of grid cells around it forms a
+    pseudo-ensemble, scored with the CRPS against the OSTIA reprocessed sea surface temperature analysis
+    (METOFFICE-GLO-SST-L4-REP-OBS-SST) interpolated onto the challenger grid (HiRA method, Mittermaier 2014). Boxes
+    are 1, 3, 5 and 7 cells of 1/12 degree wide, scaled to the challenger's grid. Cells with any sea ice in OSTIA are
+    left out. Land cells are left out of a box; a cell is scored only if it is ocean and every box holds at least
+    ``minimum_ocean_fraction`` ocean cells. Scores are area-weighted means per lead day. Lower is better.
+
+    Parameters
+    ----------
+    challenger_dataset : xarray.Dataset
+        The challenger dataset.
+    region : str, optional
+        The OceanBench region to evaluate on.
+    minimum_ocean_fraction : float, optional
+        Minimum share of ocean cells in every box for a cell to be scored, in (0, 1].
+
+    Returns
+    -------
+    DataFrame
+        The DataFrame containing the scores.
+    """
+    return metrics.neighbourhood_crps_of_sea_surface_temperature_compared_to_ostia(
+        challenger_dataset=challenger_dataset,
+        region=region,
+        minimum_ocean_fraction=minimum_ocean_fraction,
+    )

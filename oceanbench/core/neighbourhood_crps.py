@@ -120,3 +120,44 @@ def neighbourhood_crps(
     return xarray.concat(scores, dim=pandas.Index(box_sizes, name=BOX_SIZE_DIMENSION)).where(
         has_enough_ocean_in_every_box
     )
+
+
+def _gridded_neighbourhood_values(field: xarray.DataArray, box_size: int) -> xarray.DataArray:
+    latitude_key = Dimension.LATITUDE.key()
+    longitude_key = Dimension.LONGITUDE.key()
+    half_width = _box_offsets(box_size, _BOX_ROW_DIMENSION).max().item()
+    is_global = is_global_longitude_grid(field[longitude_key].values)
+    padded_field = (
+        field.drop_vars(longitude_key).pad({longitude_key: (half_width, half_width)}, mode="wrap")
+        if is_global
+        else field.drop_vars(longitude_key)
+    )
+    boxes = padded_field.rolling({latitude_key: box_size, longitude_key: box_size}, center=True).construct(
+        {latitude_key: _BOX_ROW_DIMENSION, longitude_key: _BOX_COLUMN_DIMENSION}
+    )
+    unpadded_boxes = (
+        boxes.isel({longitude_key: slice(half_width, boxes.sizes[longitude_key] - half_width)}) if is_global else boxes
+    )
+    return unpadded_boxes.assign_coords({longitude_key: field[longitude_key]}).stack(
+        {NEIGHBOURHOOD_MEMBER_DIMENSION: [_BOX_ROW_DIMENSION, _BOX_COLUMN_DIMENSION]},
+        create_index=False,
+    )
+
+
+def gridded_neighbourhood_crps(
+    field: xarray.DataArray,
+    reference: xarray.DataArray,
+    box_sizes: list[int],
+    minimum_ocean_fraction: float = 0.5,
+) -> xarray.DataArray:
+    if not 0 < minimum_ocean_fraction <= 1:
+        raise ValueError(f"Minimum ocean fraction must be in (0, 1], got {minimum_ocean_fraction}.")
+    boxes = [_gridded_neighbourhood_values(field, box_size) for box_size in box_sizes]
+    has_enough_ocean_in_every_box = xarray.concat(
+        [box.notnull().mean(NEIGHBOURHOOD_MEMBER_DIMENSION) >= minimum_ocean_fraction for box in boxes],
+        dim=BOX_SIZE_DIMENSION,
+    ).all(BOX_SIZE_DIMENSION)
+    scores = [ensemble_crps(box, reference) for box in boxes]
+    return xarray.concat(scores, dim=pandas.Index(box_sizes, name=BOX_SIZE_DIMENSION)).where(
+        has_enough_ocean_in_every_box & reference.notnull()
+    )
