@@ -52,7 +52,10 @@ def _asset_key(opener_name: str, challenger_dataset) -> tuple:
     )
 
 
-METRICS_WITH_REFERENCES_NOT_STAGED_YET = ("neighbourhood_crps_of_sea_surface_temperature_compared_to_ostia",)
+METRICS_WITH_REFERENCES_NOT_STAGED_YET = (
+    "neighbourhood_crps_of_sea_surface_temperature_compared_to_ostia",
+    "neighbourhood_crps_of_sea_surface_temperature_compared_to_l3_observations",
+)
 
 
 def _record_asset_openers(monkeypatch, module, opened_assets: set) -> None:

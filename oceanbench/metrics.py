@@ -316,3 +316,41 @@ def neighbourhood_crps_of_sea_surface_temperature_compared_to_ostia(
         region=region,
         minimum_ocean_fraction=minimum_ocean_fraction,
     )
+
+
+def neighbourhood_crps_of_sea_surface_temperature_compared_to_l3_observations(
+    challenger_dataset: xarray.Dataset,
+    region: RegionLike = "global",
+    minimum_ocean_fraction: float = 0.5,
+) -> DataFrame:
+    """
+    Compute the neighbourhood Continuous Ranked Probability Score (CRPS) of sea surface temperature compared to
+    satellite L3 observations.
+
+    Every valid pixel of the ODYSSEA multi-sensor L3S reprocessed foundation sea surface temperature
+    (cmems_obs-sst_glo_phy_my_l3s_P1D-m, 0.1 degree, GHRSST quality level 4 or 5) is one observation. The challenger's
+    top-level temperature in a box of grid cells around it forms a pseudo-ensemble, scored with the CRPS (HiRA
+    method, Mittermaier 2014). Boxes are 1, 3, 5 and 7 cells of 1/12 degree wide, scaled to the challenger's grid.
+    Pixels are kept in the shared Class IV observation population; land cells are left out of a box, and a pixel is
+    scored only if its nearest cell is ocean and every box holds at least ``minimum_ocean_fraction`` ocean cells.
+    Lower is better.
+
+    Parameters
+    ----------
+    challenger_dataset : xarray.Dataset
+        The challenger dataset.
+    region : str, optional
+        The OceanBench region to evaluate on.
+    minimum_ocean_fraction : float, optional
+        Minimum share of ocean cells in every box for a pixel to be scored, in (0, 1].
+
+    Returns
+    -------
+    DataFrame
+        The DataFrame containing the scores.
+    """
+    return metrics.neighbourhood_crps_of_sea_surface_temperature_compared_to_l3_observations(
+        challenger_dataset=challenger_dataset,
+        region=region,
+        minimum_ocean_fraction=minimum_ocean_fraction,
+    )
