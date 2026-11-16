@@ -92,21 +92,89 @@ def test_displaced_sharp_front_scores_better_with_a_neighbourhood():
     assert mean_crps.sel({BOX_SIZE_DIMENSION: 3}) < mean_crps.sel({BOX_SIZE_DIMENSION: 1})
 
 
-def test_observation_is_dropped_at_every_box_size_when_largest_box_touches_land():
+def _field_with_land_cells(land_cells: list[tuple[int, int]]) -> xarray.DataArray:
     latitudes = numpy.arange(0.0, 10.0)
     longitudes = numpy.arange(0.0, 10.0)
-    values = numpy.ones((latitudes.size, longitudes.size))
-    values[5, 7] = numpy.nan
-    field = _field(latitudes, longitudes, values)
-    observation_latitudes = _along_observations([5.0, 5.0])
-    observation_longitudes = _along_observations([5.0, 2.0])
+    values = numpy.arange(100.0).reshape(10, 10)
+    for row, column in land_cells:
+        values[row, column] = numpy.nan
+    return _field(latitudes, longitudes, values)
+
+
+def test_ensemble_crps_leaves_out_land_members():
+    members = xarray.DataArray(
+        [[1.0, numpy.nan, 2.0, 4.0, numpy.nan]], dims=[OBSERVATION_DIMENSION, NEIGHBOURHOOD_MEMBER_DIMENSION]
+    )
+
+    crps = ensemble_crps(members, _along_observations([3.0]))
+
+    numpy.testing.assert_allclose(crps.values, [2.0 / 3.0])
+
+
+def test_partly_land_box_is_scored_on_its_ocean_cells_by_default():
+    field = _field_with_land_cells([(5, 6)])
 
     crps = neighbourhood_crps(
-        field, observation_latitudes, observation_longitudes, _along_observations([1.0, 1.0]), box_sizes=[1, 3, 5]
+        field, _along_observations([5.0]), _along_observations([5.0]), _along_observations([0.0]), box_sizes=[1, 3]
+    )
+
+    ocean_cells = numpy.delete(field.values[4:7, 4:7].ravel(), 5)
+    numpy.testing.assert_allclose(crps.sel({BOX_SIZE_DIMENSION: 3}).values, [_brute_force_crps(ocean_cells, 0.0)])
+
+
+def test_observation_with_a_land_centre_cell_is_not_scored():
+    crps = neighbourhood_crps(
+        _field_with_land_cells([(5, 5)]),
+        _along_observations([5.0]),
+        _along_observations([5.0]),
+        _along_observations([0.0]),
+        box_sizes=[1, 3],
+    )
+
+    assert crps.isnull().all()
+
+
+def test_observation_is_dropped_at_every_box_size_when_one_box_has_too_little_ocean():
+    mostly_land_around_centre = [(row, column) for row in (4, 5, 6) for column in (4, 5, 6) if (row, column) != (5, 5)]
+    observations = _along_observations([0.0, 0.0])
+
+    crps = neighbourhood_crps(
+        _field_with_land_cells(mostly_land_around_centre),
+        _along_observations([5.0, 2.0]),
+        _along_observations([5.0, 8.0]),
+        observations,
+        box_sizes=[1, 3],
     )
 
     assert crps.isel({OBSERVATION_DIMENSION: 0}).isnull().all()
     assert crps.isel({OBSERVATION_DIMENSION: 1}).notnull().all()
+
+
+def test_full_ocean_fraction_keeps_only_boxes_that_are_entirely_ocean():
+    crps = neighbourhood_crps(
+        _field_with_land_cells([(5, 7)]),
+        _along_observations([5.0, 5.0]),
+        _along_observations([5.0, 2.0]),
+        _along_observations([1.0, 1.0]),
+        box_sizes=[1, 3, 5],
+        minimum_ocean_fraction=1.0,
+    )
+
+    assert crps.isel({OBSERVATION_DIMENSION: 0}).isnull().all()
+    assert crps.isel({OBSERVATION_DIMENSION: 1}).notnull().all()
+
+
+@pytest.mark.parametrize("minimum_ocean_fraction", [0.0, 1.5])
+def test_minimum_ocean_fraction_must_be_a_proportion(minimum_ocean_fraction: float):
+    with pytest.raises(ValueError, match="Minimum ocean fraction"):
+        neighbourhood_crps(
+            _field_with_land_cells([]),
+            _along_observations([5.0]),
+            _along_observations([5.0]),
+            _along_observations([0.0]),
+            box_sizes=[1],
+            minimum_ocean_fraction=minimum_ocean_fraction,
+        )
 
 
 def test_box_wraps_across_the_dateline_on_a_global_grid():

@@ -16,10 +16,11 @@ _BOX_COLUMN_DIMENSION = "box_column"
 
 
 def _regular_grid_spacing(coordinate_values: numpy.ndarray) -> float:
-    spacings = numpy.diff(coordinate_values)
-    if not numpy.allclose(spacings, spacings[0]):
+    coordinates = coordinate_values.astype(numpy.float64)
+    mean_spacing = (coordinates[-1] - coordinates[0]) / (coordinates.size - 1)
+    if not numpy.allclose(numpy.diff(coordinates), mean_spacing, rtol=0, atol=1e-3 * abs(mean_spacing)):
         raise ValueError("Neighbourhood CRPS needs a regular latitude and longitude grid.")
-    return float(spacings[0])
+    return float(mean_spacing)
 
 
 def _nearest_grid_indices(
@@ -27,7 +28,7 @@ def _nearest_grid_indices(
     target_values: xarray.DataArray,
 ) -> xarray.DataArray:
     spacing = _regular_grid_spacing(coordinate_values)
-    return numpy.rint((target_values - coordinate_values[0]) / spacing).astype(numpy.int64)
+    return numpy.rint((target_values - float(coordinate_values[0])) / spacing).astype(numpy.int64)
 
 
 def _box_offsets(box_size: int, dimension: str) -> xarray.DataArray:
@@ -42,7 +43,9 @@ def neighbourhood_values(
     latitudes: xarray.DataArray,
     longitudes: xarray.DataArray,
     box_size: int,
+    observation_indexers: dict[str, xarray.DataArray] | None = None,
 ) -> xarray.DataArray:
+    indexers = observation_indexers or {}
     latitude_key = Dimension.LATITUDE.key()
     longitude_key = Dimension.LONGITUDE.key()
     grid_latitudes = field[latitude_key].values
@@ -57,12 +60,13 @@ def neighbourhood_values(
     is_inside_grid = (rows >= 0) & (rows < row_count) & (wrapped_columns >= 0) & (wrapped_columns < column_count)
 
     box_values = field.isel(
-        {
+        indexers
+        | {
             latitude_key: rows.clip(0, row_count - 1),
             longitude_key: wrapped_columns.clip(0, column_count - 1),
         }
     ).where(is_inside_grid)
-    return box_values.drop_vars([latitude_key, longitude_key], errors="ignore").stack(
+    return box_values.drop_vars([latitude_key, longitude_key, *indexers], errors="ignore").stack(
         {NEIGHBOURHOOD_MEMBER_DIMENSION: [_BOX_ROW_DIMENSION, _BOX_COLUMN_DIMENSION]},
         create_index=False,
     )
@@ -72,7 +76,7 @@ def ensemble_crps(
     members: xarray.DataArray,
     observations: xarray.DataArray,
 ) -> xarray.DataArray:
-    member_count = members.sizes[NEIGHBOURHOOD_MEMBER_DIMENSION]
+    ocean_member_count = members.notnull().sum(NEIGHBOURHOOD_MEMBER_DIMENSION)
     sorted_members = xarray.apply_ufunc(
         numpy.sort,
         members,
@@ -82,15 +86,16 @@ def ensemble_crps(
         dask="parallelized",
         output_dtypes=[members.dtype],
     )
-    rank_weights = xarray.DataArray(
-        2 * numpy.arange(1, member_count + 1) - member_count - 1,
+    ranks = xarray.DataArray(
+        numpy.arange(1, members.sizes[NEIGHBOURHOOD_MEMBER_DIMENSION] + 1),
         dims=NEIGHBOURHOOD_MEMBER_DIMENSION,
     )
-    mean_absolute_error = abs(members - observations).mean(NEIGHBOURHOOD_MEMBER_DIMENSION, skipna=False)
-    half_mean_member_difference = (sorted_members * rank_weights).sum(NEIGHBOURHOOD_MEMBER_DIMENSION, skipna=False) / (
-        member_count**2
+    rank_weights = 2 * ranks - ocean_member_count - 1
+    mean_absolute_error = abs(members - observations).mean(NEIGHBOURHOOD_MEMBER_DIMENSION)
+    half_mean_member_difference = (sorted_members * rank_weights).sum(NEIGHBOURHOOD_MEMBER_DIMENSION) / (
+        ocean_member_count**2
     )
-    return mean_absolute_error - half_mean_member_difference
+    return (mean_absolute_error - half_mean_member_difference).where(ocean_member_count > 0)
 
 
 def neighbourhood_crps(
@@ -99,12 +104,19 @@ def neighbourhood_crps(
     longitudes: xarray.DataArray,
     observations: xarray.DataArray,
     box_sizes: list[int],
+    minimum_ocean_fraction: float = 0.5,
+    observation_indexers: dict[str, xarray.DataArray] | None = None,
 ) -> xarray.DataArray:
-    largest_box_is_ocean = (
-        neighbourhood_values(field, latitudes, longitudes, max(box_sizes)).notnull().all(NEIGHBOURHOOD_MEMBER_DIMENSION)
-    )
-    scores = [
-        ensemble_crps(neighbourhood_values(field, latitudes, longitudes, box_size), observations)
-        for box_size in box_sizes
+    if not 0 < minimum_ocean_fraction <= 1:
+        raise ValueError(f"Minimum ocean fraction must be in (0, 1], got {minimum_ocean_fraction}.")
+    boxes = [
+        neighbourhood_values(field, latitudes, longitudes, box_size, observation_indexers) for box_size in box_sizes
     ]
-    return xarray.concat(scores, dim=pandas.Index(box_sizes, name=BOX_SIZE_DIMENSION)).where(largest_box_is_ocean)
+    has_enough_ocean_in_every_box = xarray.concat(
+        [box.notnull().mean(NEIGHBOURHOOD_MEMBER_DIMENSION) >= minimum_ocean_fraction for box in boxes],
+        dim=BOX_SIZE_DIMENSION,
+    ).all(BOX_SIZE_DIMENSION)
+    scores = [ensemble_crps(box, observations) for box in boxes]
+    return xarray.concat(scores, dim=pandas.Index(box_sizes, name=BOX_SIZE_DIMENSION)).where(
+        has_enough_ocean_in_every_box
+    )

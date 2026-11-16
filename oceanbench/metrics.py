@@ -242,3 +242,41 @@ def deviation_of_lagrangian_trajectories_compared_to_glo12_analysis(
         challenger_dataset=challenger_dataset,
         region=region,
     )
+
+
+def neighbourhood_crps_of_temperature_compared_to_observations(
+    challenger_dataset: xarray.Dataset,
+    region: RegionLike = "global",
+    minimum_ocean_fraction: float = 0.5,
+) -> DataFrame:
+    """
+    Compute the neighbourhood Continuous Ranked Probability Score (CRPS) of temperature compared to observations.
+
+    The challenger values in a box of grid cells around each in situ temperature observation (Argo profiles and
+    drifters) form a pseudo-ensemble, scored with the CRPS (HiRA method, Mittermaier 2014). Boxes are 1, 3, 5 and 7
+    cells of 1/12 degree wide, scaled to the challenger's grid, so models of different resolutions are scored over
+    the same area. Only grids at 1/12 degree or an odd fraction of it are supported. Land cells are left out of a box;
+    an observation is scored only if its nearest cell is ocean and every box holds at least
+    ``minimum_ocean_fraction`` ocean cells, so every box size is scored on the same observations. A box of one cell
+    gives the absolute error at the nearest grid cell. Lower is better.
+
+    Parameters
+    ----------
+    challenger_dataset : xarray.Dataset
+        The challenger dataset.
+    region : str, optional
+        The OceanBench region to evaluate on.
+    minimum_ocean_fraction : float, optional
+        Minimum share of ocean cells in every box for an observation to be scored, in (0, 1]. 1 keeps only
+        observations whose boxes are entirely ocean.
+
+    Returns
+    -------
+    DataFrame
+        The DataFrame containing the scores.
+    """
+    return metrics.neighbourhood_crps_of_temperature_compared_to_observations(
+        challenger_dataset=challenger_dataset,
+        region=region,
+        minimum_ocean_fraction=minimum_ocean_fraction,
+    )
