@@ -1,0 +1,138 @@
+# SPDX-FileCopyrightText: 2026 Mercator Ocean International <https://www.mercator-ocean.eu/>
+#
+# SPDX-License-Identifier: EUPL-1.2
+
+import numpy
+import pytest
+import xarray
+
+from oceanbench.core.dataset_utils import Dimension
+from oceanbench.core.neighbourhood_crps import (
+    BOX_SIZE_DIMENSION,
+    NEIGHBOURHOOD_MEMBER_DIMENSION,
+    OBSERVATION_DIMENSION,
+    ensemble_crps,
+    neighbourhood_crps,
+    neighbourhood_values,
+)
+
+
+def _field(latitudes: numpy.ndarray, longitudes: numpy.ndarray, values: numpy.ndarray) -> xarray.DataArray:
+    return xarray.DataArray(
+        values,
+        dims=[Dimension.LATITUDE.key(), Dimension.LONGITUDE.key()],
+        coords={Dimension.LATITUDE.key(): latitudes, Dimension.LONGITUDE.key(): longitudes},
+    )
+
+
+def _along_observations(values: list[float]) -> xarray.DataArray:
+    return xarray.DataArray(numpy.array(values, dtype=float), dims=OBSERVATION_DIMENSION)
+
+
+def _brute_force_crps(members: numpy.ndarray, observation: float) -> float:
+    member_count = members.size
+    pairwise_differences = numpy.abs(members[:, None] - members[None, :]).sum()
+    return numpy.abs(members - observation).mean() - pairwise_differences / (2 * member_count**2)
+
+
+def test_ensemble_crps_matches_hand_worked_example():
+    members = xarray.DataArray([[1.0, 2.0, 4.0]], dims=[OBSERVATION_DIMENSION, NEIGHBOURHOOD_MEMBER_DIMENSION])
+
+    crps = ensemble_crps(members, _along_observations([3.0]))
+
+    numpy.testing.assert_allclose(crps.values, [2.0 / 3.0])
+
+
+def test_ensemble_crps_matches_pairwise_definition():
+    random_generator = numpy.random.default_rng(seed=0)
+    member_values = random_generator.normal(size=(20, 49))
+    observation_values = random_generator.normal(size=20)
+    members = xarray.DataArray(member_values, dims=[OBSERVATION_DIMENSION, NEIGHBOURHOOD_MEMBER_DIMENSION])
+
+    crps = ensemble_crps(members, _along_observations(list(observation_values)))
+
+    expected = [_brute_force_crps(member_values[index], observation_values[index]) for index in range(20)]
+    numpy.testing.assert_allclose(crps.values, expected)
+
+
+def test_single_cell_box_gives_absolute_error_of_nearest_cell():
+    random_generator = numpy.random.default_rng(seed=1)
+    latitudes = numpy.arange(-5.0, 5.0, 0.5)
+    longitudes = numpy.arange(10.0, 20.0, 0.5)
+    field = _field(latitudes, longitudes, random_generator.normal(size=(latitudes.size, longitudes.size)))
+    observation_latitudes = _along_observations([-2.1, 0.2, 3.4])
+    observation_longitudes = _along_observations([12.1, 15.3, 17.8])
+    observations = _along_observations([0.5, -0.3, 1.2])
+
+    crps = neighbourhood_crps(field, observation_latitudes, observation_longitudes, observations, box_sizes=[1])
+
+    nearest_values = field.sel(
+        {
+            Dimension.LATITUDE.key(): observation_latitudes,
+            Dimension.LONGITUDE.key(): observation_longitudes,
+        },
+        method="nearest",
+    )
+    numpy.testing.assert_allclose(crps.sel({BOX_SIZE_DIMENSION: 1}).values, abs(nearest_values - observations).values)
+
+
+def test_displaced_sharp_front_scores_better_with_a_neighbourhood():
+    latitudes = numpy.arange(0.0, 20.0)
+    longitudes = numpy.arange(0.0, 20.0)
+    displaced_front = (longitudes >= 11).astype(float)
+    field = _field(latitudes, longitudes, numpy.tile(displaced_front, (latitudes.size, 1)))
+    observation_longitudes = _along_observations(list(numpy.arange(6.0, 15.0)))
+    observation_latitudes = xarray.full_like(observation_longitudes, 10.0)
+    observations = (observation_longitudes >= 10).astype(float)
+
+    mean_crps = neighbourhood_crps(
+        field, observation_latitudes, observation_longitudes, observations, box_sizes=[1, 3]
+    ).mean(OBSERVATION_DIMENSION)
+
+    assert mean_crps.sel({BOX_SIZE_DIMENSION: 3}) < mean_crps.sel({BOX_SIZE_DIMENSION: 1})
+
+
+def test_observation_is_dropped_at_every_box_size_when_largest_box_touches_land():
+    latitudes = numpy.arange(0.0, 10.0)
+    longitudes = numpy.arange(0.0, 10.0)
+    values = numpy.ones((latitudes.size, longitudes.size))
+    values[5, 7] = numpy.nan
+    field = _field(latitudes, longitudes, values)
+    observation_latitudes = _along_observations([5.0, 5.0])
+    observation_longitudes = _along_observations([5.0, 2.0])
+
+    crps = neighbourhood_crps(
+        field, observation_latitudes, observation_longitudes, _along_observations([1.0, 1.0]), box_sizes=[1, 3, 5]
+    )
+
+    assert crps.isel({OBSERVATION_DIMENSION: 0}).isnull().all()
+    assert crps.isel({OBSERVATION_DIMENSION: 1}).notnull().all()
+
+
+def test_box_wraps_across_the_dateline_on_a_global_grid():
+    latitudes = numpy.arange(-10.0, 10.0, 1.0)
+    longitudes = numpy.arange(-180.0, 180.0, 1.0)
+    longitude_values = numpy.tile(longitudes, (latitudes.size, 1))
+    field = _field(latitudes, longitudes, longitude_values)
+
+    box = neighbourhood_values(field, _along_observations([0.0]), _along_observations([179.2]), box_size=3)
+
+    assert sorted(numpy.unique(box.values)) == [-180.0, 178.0, 179.0]
+
+
+def test_box_beyond_a_regional_grid_edge_is_missing():
+    latitudes = numpy.arange(0.0, 10.0)
+    longitudes = numpy.arange(0.0, 10.0)
+    field = _field(latitudes, longitudes, numpy.ones((latitudes.size, longitudes.size)))
+
+    box = neighbourhood_values(field, _along_observations([5.0]), _along_observations([9.0]), box_size=3)
+
+    assert box.isnull().sum() == 3
+
+
+@pytest.mark.parametrize("box_size", [0, 2, -3])
+def test_box_size_must_be_positive_and_odd(box_size: int):
+    field = _field(numpy.arange(3.0), numpy.arange(3.0), numpy.ones((3, 3)))
+
+    with pytest.raises(ValueError, match="positive odd"):
+        neighbourhood_values(field, _along_observations([1.0]), _along_observations([1.0]), box_size=box_size)
