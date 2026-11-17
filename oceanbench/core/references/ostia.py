@@ -7,6 +7,7 @@ import numpy
 import pandas
 import xarray
 
+from oceanbench.core.climate_forecast_standard_names import rename_dataset_with_standard_names
 from oceanbench.core.dataset_utils import Dimension, Variable
 
 OSTIA_REPROCESSED_DATASET_IDENTIFIER = "METOFFICE-GLO-SST-L4-REP-OBS-SST"
@@ -48,16 +49,17 @@ def _bounds_with_margin(coordinate: xarray.DataArray) -> tuple[float, float]:
 
 
 def ostia_sea_surface_temperature_dataset(challenger_dataset: xarray.Dataset) -> xarray.Dataset:
+    challenger = rename_dataset_with_standard_names(challenger_dataset)
     latitude_key = Dimension.LATITUDE.key()
     longitude_key = Dimension.LONGITUDE.key()
     first_day_key = Dimension.FIRST_DAY_DATETIME.key()
-    first_day_datetimes = challenger_dataset[first_day_key].values
+    first_day_datetimes = challenger[first_day_key].values
     windows = [
         _ostia_window(
             first_day_datetime,
-            challenger_dataset.sizes[Dimension.LEAD_DAY_INDEX.key()],
-            _bounds_with_margin(challenger_dataset[latitude_key]),
-            _bounds_with_margin(challenger_dataset[longitude_key]),
+            challenger.sizes[Dimension.LEAD_DAY_INDEX.key()],
+            _bounds_with_margin(challenger[latitude_key]),
+            _bounds_with_margin(challenger[longitude_key]),
         )
         for first_day_datetime in first_day_datetimes
     ]
@@ -65,8 +67,8 @@ def ostia_sea_surface_temperature_dataset(challenger_dataset: xarray.Dataset) ->
         xarray.concat(windows, dim=pandas.Index(first_day_datetimes, name=first_day_key))
         .interp(
             {
-                latitude_key: challenger_dataset[latitude_key],
-                longitude_key: challenger_dataset[longitude_key],
+                latitude_key: challenger[latitude_key],
+                longitude_key: challenger[longitude_key],
             },
             method="linear",
         )

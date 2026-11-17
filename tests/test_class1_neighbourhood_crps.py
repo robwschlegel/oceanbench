@@ -104,3 +104,17 @@ def test_class1_table_has_one_area_weighted_row_per_box_size():
     assert list(table.columns) == ["Lead day 1", "Lead day 2", "Lead day 3"]
     assert table.index[3].endswith("neighbourhood 7x7 vs OSTIA")
     numpy.testing.assert_allclose(table.values, 1.0)
+
+
+def test_ostia_accepts_a_challenger_whose_coordinates_are_named_only_by_standard_name(monkeypatch):
+    monkeypatch.setattr(ostia.copernicusmarine, "open_dataset", _fake_ostia_open_dataset([]))
+    challenger = _challenger(numpy.zeros((2, LEAD_DAYS_COUNT, 2, 6, 5))).rename(
+        {Dimension.LATITUDE.key(): "lat", Dimension.LONGITUDE.key(): "lon"}
+    )
+    challenger["lat"].attrs["standard_name"] = Dimension.LATITUDE.key()
+    challenger["lon"].attrs["standard_name"] = Dimension.LONGITUDE.key()
+
+    reference = ostia.ostia_sea_surface_temperature_dataset(challenger)
+
+    assert reference.sizes[Dimension.LATITUDE.key()] == 6
+    assert reference.sizes[Dimension.LONGITUDE.key()] == 5

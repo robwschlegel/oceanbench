@@ -115,3 +115,18 @@ def test_l3_crps_pools_every_start_and_reports_the_constant_error(monkeypatch):
     numpy.testing.assert_allclose(table[["Lead day 1", "Lead day 2"]].values, 1.5)
     assert (table[OBSERVATION_COUNT_COLUMN] > 0).all()
     assert table[OBSERVATION_COUNT_COLUMN].nunique() == 1
+
+
+def test_l3_windows_accept_a_challenger_whose_coordinates_are_named_only_by_standard_name(monkeypatch):
+    opened_requests: list[dict] = []
+    monkeypatch.setattr(
+        l3_sea_surface_temperature.copernicusmarine, "open_dataset", _fake_open_dataset(opened_requests)
+    )
+    challenger = _challenger(15.0).rename({Dimension.LATITUDE.key(): "lat", Dimension.LONGITUDE.key(): "lon"})
+    challenger["lat"].attrs["standard_name"] = Dimension.LATITUDE.key()
+    challenger["lon"].attrs["standard_name"] = Dimension.LONGITUDE.key()
+
+    windows = l3_sea_surface_temperature.l3_sea_surface_temperature_windows(challenger)
+
+    assert len(windows) == 2
+    assert opened_requests[0]["minimum_latitude"] == float(challenger["lat"].min()) - 0.1

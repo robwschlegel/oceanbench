@@ -7,6 +7,7 @@ import numpy
 import pandas
 import xarray
 
+from oceanbench.core.climate_forecast_standard_names import rename_dataset_with_standard_names
 from oceanbench.core.dataset_utils import Dimension
 
 L3_SEA_SURFACE_TEMPERATURE_DATASET_IDENTIFIER = "cmems_obs-sst_glo_phy_my_l3s_P1D-m"
@@ -49,14 +50,15 @@ def _l3_window(
 
 
 def l3_sea_surface_temperature_windows(challenger_dataset: xarray.Dataset) -> list[xarray.DataArray]:
+    challenger = rename_dataset_with_standard_names(challenger_dataset)
     return [
         _l3_window(
             first_day_datetime,
-            challenger_dataset.sizes[Dimension.LEAD_DAY_INDEX.key()],
-            _bounds_with_margin(challenger_dataset[Dimension.LATITUDE.key()]),
-            _bounds_with_margin(challenger_dataset[Dimension.LONGITUDE.key()]),
+            challenger.sizes[Dimension.LEAD_DAY_INDEX.key()],
+            _bounds_with_margin(challenger[Dimension.LATITUDE.key()]),
+            _bounds_with_margin(challenger[Dimension.LONGITUDE.key()]),
         )
-        for first_day_datetime in challenger_dataset[Dimension.FIRST_DAY_DATETIME.key()].values
+        for first_day_datetime in challenger[Dimension.FIRST_DAY_DATETIME.key()].values
     ]
 
 
